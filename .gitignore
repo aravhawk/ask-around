@@ -1,0 +1,8 @@
+roster.yaml
+receipt*.json
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.env
+*.egg-info/

@@ -1,0 +1,7 @@
+max_reasks: 1            # how many times a silent owner may be re-asked after the backup says yes
+default_expires_s: 300   # seconds an ask stays open (Notify allows 30-86400)
+require_all_owners: false  # true forces quorum = every owner of every decision
+rules:                   # plain-English rules given to the planner
+  - Anything that spends more than $200 needs both parents to approve.
+  - Only ask a person about decisions they actually own; never ask everyone everything.
+  - Ask the requester only about preferences, never about money.

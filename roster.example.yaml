@@ -1,0 +1,20 @@
+# Copy to roster.yaml (git-ignored) and fill in real webhook URLs.
+# Create ONE Notify webhook service per person, in THAT person's own account,
+# so a question can only ever be seen (and answered) by the person it is for.
+requester: me            # key of the person who started the task (gets the Live Activity)
+people:
+  me:
+    name: Karan
+    role: requester
+    webhook_url: https://REPLACE-WITH-NOTIFY-WEBHOOK-URL-FOR-ME
+  mom:
+    name: Mom
+    role: parent
+    webhook_url: https://REPLACE-WITH-NOTIFY-WEBHOOK-URL-FOR-MOM
+    backup: dad          # asked "Mom hasn't answered... ask again?" when Mom is silent
+    # user_id: "REPLACE"  # optional: reject answers whose respondingUserId differs
+  dad:
+    name: Dad
+    role: parent
+    webhook_url: https://REPLACE-WITH-NOTIFY-WEBHOOK-URL-FOR-DAD
+    backup: mom
