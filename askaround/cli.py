@@ -31,7 +31,13 @@ def main(argv: list[str] | None = None) -> int:
     console = Console()
     if argv and argv[0] in ("policy", "verify", "mcp"):
         from . import extras
-        return extras.dispatch(argv, console)
+        try:
+            return extras.dispatch(argv, console)
+        except KeyboardInterrupt:
+            return 2
+        except Exception as e:  # same contract as a run: any failure exits 2, never a traceback
+            console.print(f"[red]error:[/] {escape(type(e).__name__)}: {escape(str(e)[:500])}")
+            return 2
     a = _run_parser().parse_args(argv)
     try:
         receipt = asyncio.run(run_task(

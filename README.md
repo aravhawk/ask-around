@@ -2,7 +2,7 @@
 
 **Governance for agents that ask people: who may answer, how many must agree, and what silence means.**
 
-![tests](https://img.shields.io/badge/tests-122%20passing-brightgreen) ![python](https://img.shields.io/badge/python-3.11%2B-blue) ![built at](https://img.shields.io/badge/Notify%20Weekend-01-purple)
+![tests](https://img.shields.io/badge/tests-140%20passing-brightgreen) ![python](https://img.shields.io/badge/python-3.11%2B-blue) ![built at](https://img.shields.io/badge/Notify%20Weekend-01-purple)
 
 One tool call, `ask_around(task, roster, policy)`. An agent gets real humans to decide through [Notify](https://notify.belweave.ai). Each question goes only to its owner, quorum and veto are enforced, and silence is never a yes.
 
@@ -136,9 +136,28 @@ claude mcp add --env BELWEAVE_API_KEY="$BELWEAVE_API_KEY" ask-around -- \
 
 [How it works](docs/how-it-works.md) · [Policy and roster reference](docs/policy.md) · [MCP](docs/mcp.md) · [Receipts and signing](docs/receipts.md) · [Notify integration](docs/notify-integration.md)
 
-## Tests
+## Testing
 
-`pytest -q` runs 122 tests against a fake Notify transport built from the documented endpoints. They cover quorum, veto, escalation, dependencies, re-plan limits, Live Activity failures, signing and tamper detection, a real MCP stdio round trip, and 40 random status sequences that must never produce a false approval. The suite does not exercise live Notify or Kai-4.
+`pytest -q`: **140 passed**, **95% line coverage** (`pytest --cov=askaround`). Tests run against a fake Notify transport built from the documented endpoints. They cover quorum, veto, escalation, dependencies, re-plan limits, Notify 429/400 handling, Live Activity failures, signing and tamper detection, a real MCP stdio round trip, and 40 random status sequences that must never produce a false approval.
+
+| Module | Cover | Module | Cover |
+|---|---|---|---|
+| `signing` | 100% | `liveactivity` | 94% |
+| `runner` | 98% | `models` | 94% |
+| `fake` | 98% | `cli` | 93% |
+| `planner` | 97% | `extras` | 92% |
+| `board` | 97% | `mcp_server` | 82% |
+| `engine` | 96% | `__main__` | 0% (3-line entry point) |
+| `notify` | 95% | **total** | **95%** |
+
+Checks run by hand against the real services, and the results:
+
+- **Live Notify: passed.** An approval ask with `expiresInSeconds` 30 and `deviceIds` was accepted. Its event read `pending` (not consent). After a cancel it read `canceled`. A Live Activity start returned `201` with `accepted: 1`, and was ended afterwards. No taps were needed.
+- **Live Kai-4: not run.** `BELWEAVE_API_KEY` was not set in the test session, so the real planner call was skipped. Planning is covered only by mocked responses, so a first live run may expose response-shape surprises.
+- **Dry-run scenarios, receipts verified:** all approve, a veto (dependents blocked), silence with the backup saying yes, silence with the backup saying no, a hostile re-plan lowering quorum (rejected, plan unchanged), and an unknown policy owner (exit 2, no receipt). Every valid receipt verified. A tampered one failed.
+- **MCP over raw stdio:** `initialize`, `tools/list` and a dry-run `ask_around` call worked, with stdout pure JSON-RPC and no secrets on stderr.
+
+This pass found and fixed one real bug: `Notify.ask` shadowed the builtin `type`, so any network failure on an ask raised a `TypeError`. It still failed closed as NO, but was reported as an internal error. It also made the `policy` and `verify` subcommands exit 2 on errors instead of printing a traceback.
 
 ## Honest notes
 

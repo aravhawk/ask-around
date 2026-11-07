@@ -75,7 +75,7 @@ class Notify:
             r = await self._request("POST", webhook, json=payload, headers={"Idempotency-Key": idempotency_key[:200]})
             data = r.json()
         except Exception as e:  # network / decode errors => no ask => NO
-            raise NotifyError(f"ask failed: {type(e).__name__}") from e
+            raise NotifyError(f"ask failed: {e.__class__.__name__}") from e  # `type` is shadowed by the parameter
         if r.status_code >= 300 or not data.get("ok") or not data.get("eventId"):
             raise NotifyError(f"ask rejected: http {r.status_code}")
         resp = data.get("response") or {}
