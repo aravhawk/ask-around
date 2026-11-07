@@ -16,7 +16,7 @@ from .planner import Kai, PlannerError, canned_plan
 
 
 async def run_task(task: str, roster_path: str, policy_path: str | None, *, dry_run: bool = False,
-                   silent: set[str] | None = None, deny: set[str] | None = None, receipt_path: str = "receipt.json",
+                   silent: set[str] | None = None, deny: set[str] | None = None, receipt_path: str | None = "receipt.json",
                    show_board: bool = True, console: Console | None = None, poll_interval: float = 2.0,
                    speed: float = 1.0) -> dict:
     roster, policy = load_roster(roster_path), load_policy(policy_path)
@@ -48,11 +48,13 @@ async def run_task(task: str, roster_path: str, policy_path: str | None, *, dry_
         if show_board:
             async with Board(engine, console) as board:
                 receipt = await engine.run()
-            board.summary(receipt, receipt_path)
         else:
             receipt = await engine.run()
     finally:
         await http.aclose()
         await kai.client.aclose()
+    receipt_path = receipt_path or f"receipt-{receipt['runId']}.json"
     Path(receipt_path).write_text(json.dumps(receipt, indent=2))
+    if show_board:
+        board.summary(receipt, receipt_path)
     return receipt
