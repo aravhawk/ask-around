@@ -72,6 +72,7 @@ class Engine:
     # ---------- helpers ----------
     def note(self, msg: str) -> None:
         self.log.append(f"{datetime.now().strftime('%H:%M:%S')} {msg}")
+        self._live_push()
         self.on_change()
 
     def name(self, key: str) -> str:
@@ -332,14 +333,53 @@ class Engine:
         entry["reason"] = (rp.reason or "")[:200]
         entry["summary"] = (" ".join(b for b in bits if b) or "no change") + (f": {entry['reason']}" if entry["reason"] else "")
 
+    # ---------- Live Activity (best effort; never raises) ----------
+    def _live_text(self) -> tuple[str, float]:
+        live = [d for d in self.states.values() if d.status != "dropped"]
+        decided = sum(d.status in ("passed", "failed", "blocked") for d in live)
+        waiting = sorted({self.name(p) for d in live for p in d.waiting_on})
+        text = f"{decided} of {len(live)} decided"
+        if waiting:
+            text += " · waiting on " + ", ".join(waiting)
+        return text, (decided / len(live) if live else 1.0)
+
+    def _final_text(self) -> str:
+        out = self.outcome()
+        if out == "approved":
+            who = []
+            for d in self.states.values():
+                for o, v in d.votes.items():
+                    if v == "yes" and self.name(o) not in who:
+                        who.append(self.name(o))
+            return "Approved" + (f" by {' + '.join(who)}" if who else "") + " · receipt saved"
+        reasons = [d.reason for d in self.states.values() if d.reason and d.status in ("failed", "blocked")]
+        return f"{out.capitalize()}" + (f" · {reasons[0]}" if reasons else "") + " · receipt saved"
+
+    def _live_push(self) -> None:
+        try:
+            if self.live:
+                text, prog = self._live_text()
+                self.live.push(text, prog)
+        except Exception:
+            pass
+
     async def _live_start(self) -> None:
-        return None
+        try:
+            if self.live:
+                text, prog = self._live_text()
+                await self.live.start(text, prog)
+        except Exception:
+            pass
 
     async def _live_update(self) -> None:
-        return None
+        self._live_push()
 
     async def _live_end(self) -> None:
-        return None
+        try:
+            if self.live:
+                await self.live.end(self._final_text())
+        except Exception:
+            pass
 
     def outcome(self) -> str:
         sts = [d.status for d in self.states.values() if d.status != "dropped"]

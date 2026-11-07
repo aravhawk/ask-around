@@ -34,7 +34,9 @@ def demo_script(silent: set[str] | None = None, deny: set[str] | None = None, sp
 class FakeNotify:
     """Behaves like Notify webhook services, one per person (the person is the URL path)."""
 
-    def __init__(self, script: Script, clock: Callable[[], float] = time.monotonic, user_ids: dict | None = None):
+    def __init__(self, script: Script, clock: Callable[[], float] = time.monotonic, user_ids: dict | None = None,
+                 live_status: int = 201):
+        self.live_status = live_status
         self.script, self.clock, self._ids = script, clock, itertools.count(1)
         self.events: dict[str, dict] = {}
         self.per_person: dict[str, int] = {}
@@ -49,6 +51,12 @@ class FakeNotify:
         person = path[0]
         body = json.loads(req.content) if req.content else None
         self.requests.append((req.method, str(req.url), body, dict(req.headers)))
+        if len(path) >= 2 and path[1] == "live-activities":
+            if self.live_status != 201:
+                return httpx.Response(self.live_status, json={"ok": False})
+            if req.method == "POST" and len(path) == 2:
+                return httpx.Response(201, json={"activityId": "act_1", "accepted": True})
+            return httpx.Response(200, json={"ok": True})
         if req.method == "POST" and len(path) == 1:
             n = self.per_person[person] = self.per_person.get(person, 0) + 1
             eid = f"evt_{next(self._ids)}"

@@ -41,6 +41,10 @@ async def run_task(task: str, roster_path: str, policy_path: str | None, *, dry_
             plan = await kai.plan(task, roster, policy)
         replanner = kai if kai.api_key else None  # no key (offline dry-run): plan stays as is
         engine = Engine(task, plan, roster, policy, Notify(http), poll_interval=poll_interval, replanner=replanner)
+        if roster.requester:
+            from .liveactivity import LiveActivity
+            engine.live = LiveActivity(http, roster.people[roster.requester].webhook_url, engine.run_id,
+                                       title=task[:60])
         if show_board:
             async with Board(engine, console) as board:
                 receipt = await engine.run()
