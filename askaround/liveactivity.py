@@ -35,8 +35,12 @@ class LiveActivity:
             payload["subtitle"] = subtitle[:200]
         r = await self._call("POST", self.base, payload)
         try:
-            ok = r is not None and r.status_code == 201 and r.json().get("accepted") is not False
-            self.activity_id = str(r.json()["activityId"]) if ok else None
+            data = r.json() if r is not None else {}
+            accepted = data.get("accepted")
+            # 201 with accepted 0 (or false) means no device accepted it: treat as not started
+            ok = r is not None and r.status_code == 201 and (accepted is None or bool(accepted)) \
+                and bool(data.get("activityId"))
+            self.activity_id = str(data["activityId"]) if ok else None
         except Exception:
             ok = False
         if not ok:

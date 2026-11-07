@@ -35,8 +35,9 @@ class FakeNotify:
     """Behaves like Notify webhook services, one per person (the person is the URL path)."""
 
     def __init__(self, script: Script, clock: Callable[[], float] = time.monotonic, user_ids: dict | None = None,
-                 live_status: int = 201):
+                 live_status: int = 201, live_accepted=True):
         self.live_status = live_status
+        self.live_accepted = live_accepted
         self.script, self.clock, self._ids = script, clock, itertools.count(1)
         self.events: dict[str, dict] = {}
         self.per_person: dict[str, int] = {}
@@ -55,7 +56,7 @@ class FakeNotify:
             if self.live_status != 201:
                 return httpx.Response(self.live_status, json={"ok": False})
             if req.method == "POST" and len(path) == 2:
-                return httpx.Response(201, json={"activityId": "act_1", "accepted": True})
+                return httpx.Response(201, json={"activityId": "act_1", "accepted": self.live_accepted})
             return httpx.Response(200, json={"ok": True})
         if req.method == "POST" and len(path) == 1:
             n = self.per_person[person] = self.per_person.get(person, 0) + 1

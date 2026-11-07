@@ -68,3 +68,23 @@ async def test_no_requester_means_no_live_activity_calls():
     eng, fake = build([dec("d1", ["mom"])], scripted({}))
     await eng.run()
     assert live_calls(fake) == []
+
+
+async def test_accepted_zero_or_false_means_not_started_and_stays_quiet():
+    for accepted in (0, False):
+        eng, fake = build([dec("d1", ["mom"])], scripted({}))
+        fake.live_accepted = accepted
+        eng.live = LiveActivity(eng.notify.client, "https://fake/me", eng.run_id, "t", min_interval=0.01)
+        r = await eng.run()
+        assert r["outcome"] == "approved"
+        assert eng.live.enabled is False and eng.live.activity_id is None
+        assert [c[0] for c in live_calls(fake)] == ["POST"]  # no PATCH, no end for an activity that never started
+
+
+async def test_accepted_positive_or_absent_still_starts():
+    for accepted in (1, 2, True):
+        eng, fake = build([dec("d1", ["mom"])], scripted({}))
+        fake.live_accepted = accepted
+        eng.live = LiveActivity(eng.notify.client, "https://fake/me", eng.run_id, "t", min_interval=0.01)
+        await eng.run()
+        assert any(c[0] == "PATCH" for c in live_calls(fake))
