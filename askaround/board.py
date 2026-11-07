@@ -9,7 +9,7 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
-STYLE = {"waiting": "dim", "running": "yellow", "passed": "bold green", "failed": "bold red", "blocked": "bold magenta"}
+STYLE = {"dropped": "dim strike", "waiting": "dim", "running": "yellow", "passed": "bold green", "failed": "bold red", "blocked": "bold magenta"}
 VOTE = {"yes": "[green]✔[/]", "no": "[red]✘[/]", "blocked": "[magenta]silent[/]", "pending": "[yellow]…[/]",
         "cancelled": "[dim]–[/]", "not asked": "[dim]–[/]"}
 

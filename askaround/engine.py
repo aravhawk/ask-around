@@ -8,10 +8,10 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Callable
 
-from .models import Plan, PlanDecision, Policy, Roster
+from .models import Plan, PlanDecision, Policy, Roster, validate_plan
 from .notify import Notify, NotifyError, is_answer, is_consent
 
-TERMINAL = {"passed", "failed", "blocked"}
+TERMINAL = {"passed", "failed", "blocked", "dropped"}
 
 
 def now_iso() -> str:
@@ -228,7 +228,7 @@ class Engine:
                     continue
                 for dep in d.spec.depends_on:
                     ds = self.states.get(dep)
-                    if ds is None or ds.status in ("failed", "blocked"):
+                    if ds is None or ds.status in ("failed", "blocked", "dropped"):
                         d.status, d.reason, changed = "blocked", f"dependency {dep} did not pass", True
                         d.votes = {o: "not asked" for o in d.spec.owners}
                         self.note(f"{d.spec.id} blocked: dependency {dep}")
@@ -269,9 +269,68 @@ class Engine:
         self.on_change()
         return self.receipt()
 
-    # hooks filled in by tier 2
+    # ---------- re-planner ----------
+    def _state_for_replanner(self) -> list[dict]:
+        out = []
+        for d in self.states.values():
+            status = {"waiting": "pending", "running": "in_flight"}.get(d.status, d.status)
+            answers = [{"person": a.person, "status": a.status, "text": (a.text or "")[:300]}
+                       for a in d.asks if a.status not in ("canceled",)]
+            out.append({"id": d.spec.id, "question": d.spec.question, "type": d.spec.type, "owners": d.spec.owners,
+                        "quorum": d.spec.quorum, "depends_on": d.spec.depends_on, "status": status,
+                        "answers": answers if status in ("passed", "failed", "blocked") else []})
+        return out
+
     async def _maybe_replan(self, settled: DState) -> None:
-        return None
+        if not self.replanner or len(self.replans) >= self.policy.max_replans:
+            return
+        if not any(d.status == "waiting" for d in self.states.values()):
+            return
+        entry = {"after": settled.spec.id, "added": [], "edited": [], "dropped": [], "reason": "", "summary": ""}
+        self.note(f"re-planning after {settled.spec.id}…")
+        try:
+            rp = await self.replanner.replan(self.task, self._state_for_replanner(), self.roster, self.policy,
+                                             set(self.states))
+            self._apply_replan(rp, entry)
+        except Exception as e:  # a failed re-plan keeps the existing plan; it never approves anything
+            entry["summary"] = f"re-plan failed ({type(e).__name__}); plan unchanged"
+        self.replans.append(entry)
+        self.note(f"re-plan {len(self.replans)}: {entry['summary']}")
+
+    def _apply_replan(self, rp, entry: dict) -> None:
+        pending = {i for i, d in self.states.items() if d.status == "waiting"}  # ONLY these may change
+        specs = {i: d.spec.model_copy(deep=True) for i, d in self.states.items() if i in pending}
+        fixed = {i: d.spec for i, d in self.states.items() if i not in pending}
+        for e in rp.edit:
+            if e.get("id") not in pending:
+                raise ValueError("re-plan tried to edit a non-pending decision")
+            for k in ("question", "type", "owners", "quorum", "depends_on", "expires_s"):
+                if k in e:
+                    setattr(specs[e["id"]], k, e[k])
+            entry["edited"].append(e["id"])
+        for i in rp.drop:
+            if i in pending:
+                specs.pop(i, None)
+                entry["dropped"].append(i)
+        for a in rp.add:
+            if a.id in self.states:
+                raise ValueError(f"re-plan reused id {a.id}")
+            specs[a.id] = a
+            entry["added"].append(a.id)
+        # validate the WHOLE resulting graph (owners, quorum, deps, cycles, policy rules) before applying
+        candidate = [s.model_copy(deep=True) for s in specs.values()]
+        validate_plan(Plan(decisions=candidate), self.roster, self.policy, existing_ids=set(fixed))
+        for c in candidate:
+            if c.id in self.states and self.states[c.id].status == "waiting":
+                self.states[c.id].spec = c
+            elif c.id not in self.states:
+                self.states[c.id] = DState(c)
+        for i in entry["dropped"]:
+            self.states[i].status, self.states[i].reason = "dropped", "dropped by re-plan"
+        bits = [f"+{len(entry['added'])}" if entry["added"] else "", f"~{len(entry['edited'])}" if entry["edited"] else "",
+                f"-{len(entry['dropped'])}" if entry["dropped"] else ""]
+        entry["reason"] = (rp.reason or "")[:200]
+        entry["summary"] = (" ".join(b for b in bits if b) or "no change") + (f": {entry['reason']}" if entry["reason"] else "")
 
     async def _live_start(self) -> None:
         return None
@@ -283,7 +342,7 @@ class Engine:
         return None
 
     def outcome(self) -> str:
-        sts = [d.status for d in self.states.values()]
+        sts = [d.status for d in self.states.values() if d.status != "dropped"]
         if sts and all(s == "passed" for s in sts):
             return "approved"
         return "rejected" if any(s == "failed" for s in sts) else "blocked"

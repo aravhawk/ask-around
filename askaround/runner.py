@@ -39,8 +39,8 @@ async def run_task(task: str, roster_path: str, policy_path: str | None, *, dry_
         else:
             console.print("[dim]planning with Belweave Kai-4…[/]")
             plan = await kai.plan(task, roster, policy)
-        engine = Engine(task, plan, roster, policy, Notify(http), poll_interval=poll_interval)
-        _install_tier2(engine, kai, http, dry_run)
+        replanner = kai if kai.api_key else None  # no key (offline dry-run): plan stays as is
+        engine = Engine(task, plan, roster, policy, Notify(http), poll_interval=poll_interval, replanner=replanner)
         if show_board:
             async with Board(engine, console) as board:
                 receipt = await engine.run()
@@ -52,7 +52,3 @@ async def run_task(task: str, roster_path: str, policy_path: str | None, *, dry_
         await kai.client.aclose()
     Path(receipt_path).write_text(json.dumps(receipt, indent=2))
     return receipt
-
-
-def _install_tier2(engine: Engine, kai: Kai, http, dry_run: bool) -> None:  # filled in by tier 2
-    return None
