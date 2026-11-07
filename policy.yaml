@@ -1,7 +1,10 @@
-max_reasks: 1            # how many times a silent owner may be re-asked after the backup says yes
-default_expires_s: 300   # seconds an ask stays open (Notify allows 30-86400)
-require_all_owners: false  # true forces quorum = every owner of every decision
-rules:                   # plain-English rules given to the planner
-  - Anything that spends more than $200 needs both parents to approve.
-  - Only ask a person about decisions they actually own; never ask everyone everything.
-  - Ask the requester only about preferences, never about money.
+# PRD section 7 format. `match` rules are applied by Kai-4 while planning;
+# plain-keyword rules (like "hotel") are also enforced deterministically after planning.
+rules:
+  - match: "money > 200"
+    owners: [mom, dad]
+    quorum: 2
+  - match: "hotel"
+    owners: [dad]
+    quorum: 1
+defaults: { expires_s: 30, veto_on_deny: true, max_reasks: 1, max_replans: 2 }

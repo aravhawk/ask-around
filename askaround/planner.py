@@ -19,11 +19,14 @@ _SEM = asyncio.Semaphore(2)  # 2 concurrent streams
 PLAN_SYSTEM = """You are the planner inside Ask Around, a system that asks real people for decisions.
 Split the user's task into the smallest set of DECISIONS a human must make. Each decision is sent only to the people who own it.
 Return JSON ONLY (no prose, no code fences) shaped exactly:
-{"decisions":[{"id":"d1","question":"...","type":"approval"|"yes_no","owners":["<roster key>"],"quorum":1,"depends_on":[],"expires_s":300}]}
+{"decisions":[{"id":"d1","question":"...","type":"approval"|"yes_no"|"text","owners":["<roster key>"],"quorum":1,"depends_on":[],"expires_s":300}]}
 Rules:
 - owners must be roster keys. quorum is how many owners must say yes (1..len(owners)). Any single no vetoes the decision.
 - question must be a short, self-contained, answerable yes/no or approve/deny question that includes concrete numbers from the task when available. Never invent facts.
 - depends_on lists ids of decisions that must be approved first (e.g. book only after budget is approved).
+- Use type "approval" for anything that needs consent (money, access, bookings), "yes_no" for simple questions, and "text" ONLY to gather information (e.g. a preference). A text reply is information, never consent.
+- Ask the fewest people possible, never anyone outside the roster, and apply every policy rule (rule.match / owners / quorum). Put irreversible decisions after cheap ones.
+- question must be at most 200 characters.
 - 2 to 6 decisions. expires_s between 30 and 86400.
 """
 
@@ -98,7 +101,7 @@ class Kai:
         raise PlannerError(f"Kai-4 output failed validation twice: {last}")
 
     async def plan(self, task: str, roster: Roster, policy: Policy) -> Plan:
-        user = json.dumps({"task": task, "roster": roster.public_summary(), "policy_rules": policy.rules,
+        user = json.dumps({"task": task, "roster": roster.public_summary(), "policy_rules": policy.rules_for_planner(),
                            "default_expires_s": policy.default_expires_s})
 
         def parse(data):
@@ -108,7 +111,7 @@ class Kai:
 
     async def replan(self, task: str, state: list[dict], roster: Roster, policy: Policy,
                      existing_ids: set[str]) -> Replan:
-        user = json.dumps({"task": task, "roster": roster.public_summary(), "policy_rules": policy.rules,
+        user = json.dumps({"task": task, "roster": roster.public_summary(), "policy_rules": policy.rules_for_planner(),
                            "state": state})
         pending = {s["id"] for s in state if s["status"] == "pending"}
 

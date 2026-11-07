@@ -106,3 +106,11 @@ class Notify:
             await self._request("POST", f"{webhook.rstrip('/')}/events/{event_id}/cancel")
         except Exception:  # 404 / already settled / network: all fine
             pass
+
+
+def is_answer(status: Any, type_: str, text: Any) -> bool:
+    """A satisfied vote. approval/yes_no: ONLY server-confirmed consent. text: a non-empty 'replied'
+    is information, not consent; it never makes an approval/yes_no decision pass."""
+    if type_ == "text":
+        return status == "replied" and isinstance(text, str) and bool(text.strip())
+    return is_consent(status)

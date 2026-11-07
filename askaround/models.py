@@ -1,18 +1,20 @@
 """Config + plan models. Webhook URLs are secrets: never repr/log them."""
 from __future__ import annotations
 
+import re
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 import yaml
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import AliasChoices, BaseModel, Field, field_validator, model_validator
 
 
 class Person(BaseModel):
+    """PRD section 7 uses `webhook:`; `webhook_url:` is accepted too (backward compatible)."""
     key: str = ""
-    name: str
+    name: str = ""
     role: str = "person"
-    webhook_url: str = Field(repr=False)
+    webhook_url: str = Field(repr=False, validation_alias=AliasChoices("webhook", "webhook_url"))
     backup: str | None = None
     user_id: str | None = None
 
@@ -25,6 +27,7 @@ class Roster(BaseModel):
     def _check(self) -> "Roster":
         for k, p in self.people.items():
             p.key = k
+            p.name = p.name or k.title()
         for p in self.people.values():
             if p.backup and p.backup not in self.people:
                 raise ValueError(f"{p.key}: backup '{p.backup}' is not in the roster")
@@ -45,32 +48,87 @@ class Roster(BaseModel):
         return [{"key": k, "name": p.name, "role": p.role, "backup": p.backup} for k, p in self.people.items()]
 
 
+class Rule(BaseModel):
+    """PRD section 7 rule. `match` is applied by the planner; plain keywords are also enforced deterministically."""
+    match: str
+    owners: list[str] = Field(default_factory=list)
+    quorum: int | None = None
+
+
+_OPERATOR = re.compile(r"[<>=!$]|\bover\b|\bunder\b|\bmore than\b|\bless than\b")
+
+
 class Policy(BaseModel):
+    """Accepts the PRD shape (`rules:` of objects + `defaults:`) and the older flat keys / string rules."""
     max_reasks: int = Field(default=1, ge=0, le=5)
     default_expires_s: int = Field(default=300, ge=30, le=86400)
+    veto_on_deny: bool = True
     require_all_owners: bool = False
-    rules: list[str] = Field(default_factory=list)
-    max_replans: int = Field(default=2, ge=0, le=5)
+    max_replans: int = Field(default=2, ge=0, le=2)  # hard cap of 2 (PRD F8)
+    rules: list[Rule] = Field(default_factory=list)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _normalise(cls, data: Any):
+        if not isinstance(data, dict):
+            return data
+        data = dict(data)
+        merged = dict(data.pop("defaults", None) or {})
+        if "expires_s" in merged:
+            merged["default_expires_s"] = merged.pop("expires_s")
+        if "expires_s" in data:
+            data["default_expires_s"] = data.pop("expires_s")
+        for k, v in merged.items():
+            data.setdefault(k, v)
+        data["rules"] = [{"match": r} if isinstance(r, str) else r for r in (data.get("rules") or [])]
+        return data
+
+    def rules_for_planner(self) -> list[dict]:
+        return [r.model_dump(exclude_none=True) for r in self.rules]
+
+    def as_yaml_dict(self) -> dict:
+        return {"rules": self.rules_for_planner(),
+                "defaults": {"expires_s": self.default_expires_s, "veto_on_deny": self.veto_on_deny,
+                             "max_reasks": self.max_reasks, "max_replans": self.max_replans}}
+
+
+def enforce_rules(plan_decisions: list["PlanDecision"], roster: "Roster", policy: Policy) -> None:
+    """Deterministic backstop: for rules whose `match` is a plain keyword (no operators), any decision whose
+    id or question mentions it must include the rule's owners and meet its quorum. Expression rules
+    (e.g. "money > 200") are left to the planner. Can only tighten, never loosen."""
+    for r in policy.rules:
+        if _OPERATOR.search(r.match.lower()) or not r.owners:
+            continue
+        kw = r.match.lower().strip()
+        want = [k for k in (roster.resolve(o) for o in r.owners) if k]
+        for d in plan_decisions:
+            if kw in d.id.lower() or kw in d.question.lower():
+                for k in want:
+                    if k not in d.owners:
+                        d.owners.append(k)
+                if r.quorum:
+                    d.quorum = max(d.quorum, min(r.quorum, len(d.owners)))
 
 
 class PlanDecision(BaseModel):
     id: str
     question: str
-    type: Literal["approval", "yes_no"] = "approval"
+    type: Literal["approval", "yes_no", "text"] = "approval"
     owners: list[str]
     quorum: int = 1
     depends_on: list[str] = Field(default_factory=list)
-    expires_s: int = 300
+    expires_s: int | None = None
 
     @field_validator("type", mode="before")
     @classmethod
     def _coerce_type(cls, v):
-        # Free text can never be consent; coerce anything unknown to a yes/no.
-        return v if v in ("approval", "yes_no") else "yes_no"
+        return v if v in ("approval", "yes_no", "text") else "yes_no"
 
     @field_validator("expires_s", mode="before")
     @classmethod
     def _clamp(cls, v):
+        if v is None:
+            return None
         try:
             return max(30, min(86400, int(v)))
         except (TypeError, ValueError):
@@ -104,6 +162,7 @@ def validate_plan(plan: Plan, roster: Roster, policy: Policy, existing_ids: set[
         if not 1 <= d.quorum <= len(keys):
             raise ValueError(f"decision {d.id}: quorum {d.quorum} must be between 1 and {len(keys)}")
         d.expires_s = d.expires_s or policy.default_expires_s
+    enforce_rules(plan.decisions, roster, policy)
     known = seen | existing_ids
     for d in plan.decisions:
         for dep in d.depends_on:

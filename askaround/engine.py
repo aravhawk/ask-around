@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from typing import Any, Callable
 
 from .models import Plan, PlanDecision, Policy, Roster
-from .notify import Notify, NotifyError, is_consent
+from .notify import Notify, NotifyError, is_answer, is_consent
 
 TERMINAL = {"passed", "failed", "blocked"}
 
@@ -153,10 +153,10 @@ class Engine:
                 rec = await self._ask(d, owner, spec.question, spec.type, spec.expires_s,
                                       "primary" if reasks == 0 else "reask",
                                       {person.user_id} if person.user_id else None)
-                if is_consent(rec.status):
+                if is_answer(rec.status, spec.type, rec.text):
                     return "yes"
                 if rec.status != "expired":
-                    return "no"  # denied / no / canceled / replied / error / unknown: all NO
+                    return "no"  # denied / no / canceled / empty reply / error / unknown: all NO
                 # silence -> escalate to backup
                 if not person.backup or reasks >= self.policy.max_reasks:
                     d.reason = d.reason or f"{person.name} did not answer"
@@ -187,17 +187,22 @@ class Engine:
                 results = [(tasks[t], t.result()) for t in done]
                 for o, r in results:
                     d.votes[o] = r
-                if any(r == "no" for _, r in results):  # veto takes precedence
+                if self.policy.veto_on_deny and any(r == "no" for _, r in results):  # veto takes precedence
                     d.status = "failed"
                     vetoer = next(o for o, r in results if r == "no")
                     d.reason = f"{self.name(vetoer)} said no (veto)"
                     return
+                if not self.policy.veto_on_deny and any(r == "no" for _, r in results):
+                    d.reason = d.reason or "denied (veto disabled by policy)"
                 yes += sum(r == "yes" for _, r in results)
                 if yes >= d.spec.quorum:
                     d.status = "passed"
                     return
                 if yes + len(remaining) < d.spec.quorum:
-                    d.status = "blocked"
+                    if any(r == "no" for r in d.votes.values()):
+                        d.status = "failed"  # denials made quorum unreachable
+                    else:
+                        d.status = "blocked"
                     d.reason = d.reason or "quorum can no longer be reached"
                     return
             d.status = "blocked"

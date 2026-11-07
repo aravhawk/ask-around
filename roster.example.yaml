@@ -1,20 +1,11 @@
-# Copy to roster.yaml (git-ignored) and fill in real webhook URLs.
-# Create ONE Notify webhook service per person, in THAT person's own account,
-# so a question can only ever be seen (and answered) by the person it is for.
-requester: me            # key of the person who started the task (gets the Live Activity)
+# Copy to roster.yaml (git-ignored: webhook URLs are secrets). PRD section 7 format.
+# Create ONE Notify webhook service per person, in THAT person's own account.
+requester: arav
 people:
-  me:
-    name: Karan
-    role: requester
-    webhook_url: https://REPLACE-WITH-NOTIFY-WEBHOOK-URL-FOR-ME
+  arav: { role: "requester", webhook: "https://notify.belweave.ai/hooks/whk_REPLACE_ARAV", backup: null }
+  dad:  { role: "parent · budget, hotel", webhook: "https://notify.belweave.ai/hooks/whk_REPLACE_DAD", backup: arav }
   mom:
-    name: Mom
-    role: parent
-    webhook_url: https://REPLACE-WITH-NOTIFY-WEBHOOK-URL-FOR-MOM
-    backup: dad          # asked "Mom hasn't answered... ask again?" when Mom is silent
-    # user_id: "REPLACE"  # optional: reject answers whose respondingUserId differs
-  dad:
-    name: Dad
-    role: parent
-    webhook_url: https://REPLACE-WITH-NOTIFY-WEBHOOK-URL-FOR-DAD
-    backup: mom
+    role: "parent · budget"
+    webhook: "https://notify.belweave.ai/hooks/whk_REPLACE_MOM"
+    backup: arav          # asked "Mom hasn't answered '...'. Ask again?" when Mom is silent
+    # user_id: "REPLACE"  # optional: ignore answers whose respondingUserId differs (shared Family service)
