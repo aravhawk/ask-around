@@ -126,15 +126,38 @@ class Kai:
 
         return await self._json_call(REPLAN_SYSTEM, user, parse)
 
-    async def compile_policy(self, text: str) -> dict:
-        system = ('Convert the plain-English approval policy into JSON ONLY: {"max_reasks":int 0-5,'
-                  '"default_expires_s":int 30-86400,"require_all_owners":bool,"rules":["short imperative rule",...]}. '
-                  "Put every substantive condition (thresholds, who must approve) into rules verbatim-ish.")
+    async def compile_policy(self, text: str, roster: Roster | None = None) -> Policy:
+        """Plain English -> Policy (PRD section 7 shape). Owners are checked against the roster when given."""
+        system = (
+            "Compile the plain-English approval policy into JSON ONLY (no prose, no code fences) shaped exactly: "
+            '{"rules":[{"match":"<short condition, e.g. money > 200 or hotel>","owners":["<roster key>"],"quorum":<int>}],'
+            '"defaults":{"expires_s":<30-86400>,"veto_on_deny":true,"max_reasks":<0-5>,"max_replans":<0-2>}}. '
+            'Example: "budget over $200 needs both parents" with roster keys mom, dad -> '
+            '{"rules":[{"match":"money > 200","owners":["mom","dad"],"quorum":2}],'
+            '"defaults":{"expires_s":300,"veto_on_deny":true,"max_reasks":1}}. '
+            "quorum must be between 1 and len(owners). Use ONLY roster keys as owners. Omit anything the text does not say; "
+            "never loosen safety: veto_on_deny stays true unless the text explicitly says a single no should not block."
+        )
+        user = json.dumps({"policy_text": text, "roster": roster.public_summary() if roster else None})
 
         def parse(data):
-            return Policy.model_validate(data).model_dump(exclude={"max_replans"})
+            pol = Policy.model_validate(data)
+            for r in pol.rules:
+                if roster:
+                    keys = []
+                    for o in r.owners:
+                        k = roster.resolve(o)
+                        if k is None:
+                            raise ValueError(f"owner '{o}' is not in the roster")
+                        keys.append(k)
+                    r.owners = keys
+                if not r.owners:
+                    raise ValueError(f"rule '{r.match}' needs owners")
+                if r.quorum is not None and not 1 <= r.quorum <= len(r.owners):
+                    raise ValueError(f"rule '{r.match}': quorum must be between 1 and {len(r.owners)}")
+            return pol
 
-        return await self._json_call(system, text, parse)
+        return await self._json_call(system, user, parse)
 
 
 def canned_plan(task: str, roster: Roster, policy: Policy) -> Plan:
