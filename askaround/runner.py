@@ -12,6 +12,7 @@ from .engine import Engine
 from .fake import FakeNotify, demo_script
 from .models import load_policy, load_roster
 from .notify import Notify
+from .signing import sign_receipt
 from .planner import Kai, PlannerError, canned_plan
 
 
@@ -53,6 +54,7 @@ async def run_task(task: str, roster_path: str, policy_path: str | None, *, dry_
     finally:
         await http.aclose()
         await kai.client.aclose()
+    receipt = sign_receipt(receipt)  # no-op unless ASKAROUND_SIGNING_KEY is set
     receipt_path = receipt_path or f"receipt-{receipt['runId']}.json"
     Path(receipt_path).write_text(json.dumps(receipt, indent=2))
     if show_board:
