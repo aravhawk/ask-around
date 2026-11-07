@@ -35,5 +35,5 @@ def scripted(table):
         t = table.get((person, nth))
         if t is not None:
             return t
-        return [(0, "approved" if payload["response"]["type"] == "approval" else "yes")]
+        return [(0, {"approval": "approved", "text": "replied"}.get(payload["response"]["type"], "yes"))]
     return s

@@ -72,8 +72,11 @@ class Kai:
                 "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}]}
         async with _SEM:
             for attempt in range(3):
-                r = await self.client.post(URL, json=body, timeout=180,
-                                           headers={"Authorization": f"Bearer {self.api_key}"})
+                try:
+                    r = await self.client.post(URL, json=body, timeout=180,
+                                               headers={"Authorization": f"Bearer {self.api_key}"})
+                except httpx.HTTPError as e:  # timeouts / connect errors: a planner failure, not a crash
+                    raise PlannerError(f"Kai-4 request failed: {type(e).__name__}") from e
                 if r.status_code == 429 and attempt < 2:
                     try:
                         wait = float(r.json().get("retryAfterSeconds", 20))

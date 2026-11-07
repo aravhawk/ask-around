@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 
 from rich.console import Console
+from rich.markup import escape
 
 ALG = "HMAC-SHA256"
 ENV = "ASKAROUND_SIGNING_KEY"
@@ -56,7 +57,7 @@ def verify_cmd(argv: list[str], console: Console) -> int:
     try:
         receipt = json.loads(Path(a.receipt).read_text())
     except (OSError, json.JSONDecodeError) as e:
-        console.print(f"[red]cannot read receipt:[/] {type(e).__name__}")
+        console.print(f"[red]cannot read receipt:[/] {escape(type(e).__name__)}")
         return 2
     ok, msg = verify_receipt(receipt)
     console.print(f"[{'green' if ok else 'red'}]{msg}[/]")

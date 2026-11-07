@@ -64,7 +64,7 @@ class Policy(BaseModel):
     default_expires_s: int = Field(default=300, ge=30, le=86400)
     veto_on_deny: bool = True
     require_all_owners: bool = False
-    max_replans: int = Field(default=2, ge=0, le=2)  # hard cap of 2 (PRD F8)
+    max_replans: int = Field(default=2, ge=0)  # clamped to 2 (PRD F8) by the validator below
     rules: list[Rule] = Field(default_factory=list)
 
     @model_validator(mode="before")
@@ -83,6 +83,27 @@ class Policy(BaseModel):
         data["rules"] = [{"match": r} if isinstance(r, str) else r for r in (data.get("rules") or [])]
         return data
 
+    @field_validator("max_replans", mode="after")
+    @classmethod
+    def _cap_replans(cls, v: int) -> int:
+        return min(v, 2)
+
+    def bind(self, roster: "Roster") -> "Policy":
+        """Fail closed: every rule owner must exist in the roster (normalised to roster keys) and every
+        quorum must be satisfiable. Without this, a typo would silently disable a rule."""
+        for r in self.rules:
+            keys: list[str] = []
+            for o in r.owners:
+                k = roster.resolve(o)
+                if k is None:
+                    raise ValueError(f"policy rule '{r.match}': owner '{o}' is not in the roster")
+                if k not in keys:
+                    keys.append(k)
+            r.owners = keys
+            if r.quorum is not None and not (r.owners and 1 <= r.quorum <= len(r.owners)):
+                raise ValueError(f"policy rule '{r.match}': quorum {r.quorum} needs 1..{len(r.owners)} owners")
+        return self
+
     def rules_for_planner(self) -> list[dict]:
         return [r.model_dump(exclude_none=True) for r in self.rules]
 
@@ -100,7 +121,12 @@ def enforce_rules(plan_decisions: list["PlanDecision"], roster: "Roster", policy
         if _OPERATOR.search(r.match.lower()) or not r.owners:
             continue
         kw = r.match.lower().strip()
-        want = [k for k in (roster.resolve(o) for o in r.owners) if k]
+        want = []
+        for o in r.owners:
+            k = roster.resolve(o)
+            if k is None:  # never silently skip a rule
+                raise ValueError(f"policy rule '{r.match}': owner '{o}' is not in the roster")
+            want.append(k)
         for d in plan_decisions:
             if kw in d.id.lower() or kw in d.question.lower():
                 for k in want:
@@ -157,12 +183,13 @@ def validate_plan(plan: Plan, roster: Roster, policy: Policy, existing_ids: set[
         if not keys:
             raise ValueError(f"decision {d.id}: needs at least one owner")
         d.owners = keys
+    enforce_rules(plan.decisions, roster, policy)  # may add owners / raise quorum
+    for d in plan.decisions:
         if policy.require_all_owners:
-            d.quorum = len(keys)
-        if not 1 <= d.quorum <= len(keys):
-            raise ValueError(f"decision {d.id}: quorum {d.quorum} must be between 1 and {len(keys)}")
+            d.quorum = len(d.owners)  # AFTER rules, so rule-added owners are included
+        if not 1 <= d.quorum <= len(d.owners):
+            raise ValueError(f"decision {d.id}: quorum {d.quorum} must be between 1 and {len(d.owners)}")
         d.expires_s = d.expires_s or policy.default_expires_s
-    enforce_rules(plan.decisions, roster, policy)
     known = seen | existing_ids
     for d in plan.decisions:
         for dep in d.depends_on:
@@ -187,12 +214,26 @@ def validate_plan(plan: Plan, roster: Roster, policy: Policy, existing_ids: set[
     return plan
 
 
+def _load_yaml(path: str | Path, what: str) -> dict:
+    try:
+        data = yaml.safe_load(Path(path).read_text())
+    except yaml.YAMLError as e:
+        raise ValueError(f"{what} file {path} is not valid YAML") from e
+    if data is None:
+        return {}
+    if not isinstance(data, dict):
+        raise ValueError(f"{what} file {path} must contain a mapping")
+    return data
+
+
 def load_roster(path: str | Path) -> Roster:
-    data = yaml.safe_load(Path(path).read_text()) or {}
-    return Roster.model_validate(data)
+    return Roster.model_validate(_load_yaml(path, "roster"))
 
 
 def load_policy(path: str | Path | None) -> Policy:
-    if not path or not Path(path).exists():
+    """No path -> built-in defaults. A path that does not exist is an ERROR (never silently ungoverned)."""
+    if not path:
         return Policy()
-    return Policy.model_validate(yaml.safe_load(Path(path).read_text()) or {})
+    if not Path(path).is_file():
+        raise FileNotFoundError(f"policy file not found: {path}")
+    return Policy.model_validate(_load_yaml(path, "policy"))

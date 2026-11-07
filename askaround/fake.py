@@ -20,7 +20,7 @@ def demo_script(silent: set[str] | None = None, deny: set[str] | None = None, sp
     def script(person: str, nth: int, payload: dict):
         idx = order.setdefault(person, len(order))
         yes_type = payload["response"]["type"]
-        ok = "approved" if yes_type == "approval" else "yes"
+        ok = {"approval": "approved", "text": "replied"}.get(yes_type, "yes")
         no = "denied" if yes_type == "approval" else "no"
         if person in deny:
             return [(2 * speed, no)]
@@ -64,7 +64,6 @@ class FakeNotify:
             self.events[eid] = {"person": person, "t0": self.clock(), "steps": steps, "canceled": False}
             return httpx.Response(200, json={"ok": True, "eventId": eid, "delivered": 1,
                                              "response": {"status": "pending", "expiresAt": "2099-01-01T00:00:00Z"}})
-        ev = self.events.get(path[-1] if path[-2:-1] != ["events"] else path[-1]) if len(path) >= 3 else None
         if req.method == "GET" and len(path) == 3 and path[1] == "events":
             ev = self.events[path[2]]
             status, extra = self._status(ev)
@@ -88,7 +87,12 @@ class FakeNotify:
             if age >= at:
                 status = st
         extra = {}
-        if status not in ("pending", "expired", "canceled"):
+        if status == "replied":
+            extra = {"text": "Under $150, walkable", "respondedAt": "2026-01-01T00:00:00Z"}
+        elif status == "replied_empty":  # test hook: a reply with no text
+            status = "replied"
+            extra = {"respondedAt": "2026-01-01T00:00:00Z"}
+        elif status not in ("pending", "expired", "canceled"):
             extra = {"respondedAt": "2026-01-01T00:00:00Z", "action": status}
             uid = self.user_ids.get(ev["person"])
             if uid:

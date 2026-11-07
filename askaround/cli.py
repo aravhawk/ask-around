@@ -6,8 +6,8 @@ import logging
 import sys
 
 from rich.console import Console
+from rich.markup import escape
 
-from .planner import PlannerError
 from .runner import run_task
 
 
@@ -15,7 +15,7 @@ def _run_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(prog="askaround", description="Governance for agents that ask people.")
     ap.add_argument("task", help="what you want done")
     ap.add_argument("--roster", default="roster.yaml")
-    ap.add_argument("--policy", default="policy.yaml")
+    ap.add_argument("--policy", default=None, help="policy file (default: ./policy.yaml if present; an explicit missing path is an error)")
     ap.add_argument("--receipt", default="receipt.json")
     ap.add_argument("--dry-run", action="store_true", help="fake Notify answers; no phones needed")
     ap.add_argument("--dry-run-silent", action="append", metavar="PERSON", help="person who ignores their first ask")
@@ -37,7 +37,10 @@ def main(argv: list[str] | None = None) -> int:
             a.task, a.roster, a.policy, dry_run=a.dry_run, receipt_path=a.receipt, speed=a.speed,
             silent=set(a.dry_run_silent) if a.dry_run_silent else None,
             deny=set(a.dry_run_deny or []), console=console))
-    except (PlannerError, FileNotFoundError, ValueError) as e:
-        console.print(f"[red]error:[/] {e}")
+    except KeyboardInterrupt:
+        console.print("[red]interrupted[/]: pending asks may remain open until they expire")
+        return 2
+    except Exception as e:  # config, planner, network, anything: exit 2 so wrappers never mistake it for a rejection
+        console.print(f"[red]error:[/] {escape(type(e).__name__)}: {escape(str(e)[:500])}")
         return 2
     return 0 if receipt["outcome"] == "approved" else 1

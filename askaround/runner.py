@@ -20,8 +20,13 @@ async def run_task(task: str, roster_path: str, policy_path: str | None, *, dry_
                    silent: set[str] | None = None, deny: set[str] | None = None, receipt_path: str | None = "receipt.json",
                    show_board: bool = True, console: Console | None = None, poll_interval: float = 2.0,
                    speed: float = 1.0) -> dict:
-    roster, policy = load_roster(roster_path), load_policy(policy_path)
     console = console or Console()
+    roster = load_roster(roster_path)
+    if policy_path is None and Path("policy.yaml").is_file():
+        policy_path = "policy.yaml"
+    policy = load_policy(policy_path).bind(roster)  # explicit-but-missing path raises; typo'd owners raise
+    if policy_path is None:
+        console.print("[yellow]warning:[/] no policy file: running with built-in defaults and NO policy rules")
     kai = Kai()
     if dry_run:
         for k, p in roster.people.items():

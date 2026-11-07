@@ -29,7 +29,7 @@ task ─▶ Planner (Belweave Kai-4) ─▶ decision graph ─▶ dispatcher ─
 3. **Quorum + veto.** A decision passes when `quorum` owners give a server-confirmed approve or yes. Any deny or no fails it at once, and the other pending asks are canceled (`POST /events/:id/cancel`).
 4. **Silence is NO.** When an ask expires, the owner's backup gets a yes/no: *"{owner} hasn't answered: {question}. Ask again?"*. Yes re-asks the owner (up to `max_reasks`, default 1). No, expired, or out of re-asks marks the decision `blocked`, and everything that depends on it is blocked too.
 5. **Dependencies.** A decision is asked only after everything in `depends_on` has passed. Independent decisions run in parallel.
-6. **Re-plan.** After each decision settles, Kai-4 sees the state and may add, edit or drop only **pending** decisions (max 2 re-plans). The whole resulting graph is re-validated, including policy rules, before it is applied. A re-plan that fails validation is ignored, and the plan stays as it was.
+6. **Re-plan.** After a decision settles, Kai-4 sees the state and may add, edit or drop **pending** decisions (max 2 re-plans). It runs in the background, so it never delays real asks. A re-plan can only *tighten*: an edit may not remove owners, lower the quorum, remove a dependency, or turn an approval into free text. Only informational `text` decisions may be dropped. The whole resulting graph is re-validated (owners, quorum, dependencies, cycles, policy rules) before it is applied. A re-plan that fails any check is rejected whole and the plan stays as it was. Edits aimed at decisions that already started are skipped as stale. The receipt records only what was actually applied. No re-plan runs once any decision has failed or been blocked.
 7. **Wrong-person guard.** If a response carries a `respondingUserId` that isn't the expected person's `user_id` (set it in the roster for a shared Family service), the answer is ignored and the question is re-asked. Per-person services make this impossible by design, which is the recommended setup.
 8. **Live board, Live Activity, receipt.** A rich terminal board shows decision, owners, votes (like `1/2`), status and seconds left. The requester's phone gets one Live Activity. `receipt.json` records the task, plan, re-plans, every ask (person, exact prompt, eventId, status, respondedAt, text) and the outcome per decision. It is HMAC-signed when you set a key.
 
@@ -72,7 +72,7 @@ python -m askaround "..." --roster roster.example.yaml --dry-run --dry-run-deny 
 python -m askaround "..." --roster roster.example.yaml --dry-run --dry-run-silent mom   # choose who goes silent
 ```
 
-Exit code: `0` approved, `1` rejected or blocked, `2` error.
+Exit code: `0` approved, `1` rejected or blocked, `2` any error (bad config, unreachable planner, interrupted), so a wrapper never mistakes an error for a rejection.
 
 ### `roster.yaml` (PRD §7)
 
@@ -103,7 +103,9 @@ defaults: { expires_s: 30, veto_on_deny: true, max_reasks: 1, max_replans: 2 }
 - Expression rules (`money > 200`) are applied by the planner. Plain-keyword rules (`hotel`) are also enforced in code: any decision mentioning the keyword gets the rule's owners and at least its quorum. This also applies to decisions added by a re-plan. Rules can only tighten, never loosen.
 - `require_all_owners: true` (extra) forces quorum = every owner of every decision.
 - The older flat keys (`max_reasks`, `default_expires_s`) and plain-string rules still load.
-- `max_replans` is capped at 2.
+- `max_replans` is clamped to 2.
+- **Policies fail closed.** `--policy` defaults to `./policy.yaml` when present. A policy path that doesn't exist is an error (a typo can't silently disable your rules), as is a rule whose `owners` aren't in the roster. With no policy file at all the run proceeds with built-in defaults and a visible warning.
+- `require_all_owners` is applied after rules add owners, so it really means everyone.
 
 ### Plain-English policy
 
@@ -173,7 +175,7 @@ A fake Notify transport (`askaround/fake.py`, built only from the documented end
 - **Per-person services are required for strict routing.** On a shared Family or workplace service, Notify lets any member answer. The `user_id` guard then ignores wrong-person answers (when the response includes `respondingUserId`), but the question is still *visible* to the others. For strict "only the owner sees it", give each person their own service.
 - **Live Activity delivery isn't guaranteed to be instant.** `accepted` from Notify is not proof it is visible on the phone. If it doesn't render, the board and the push notifications carry the flow.
 - **Not yet exercised against live Notify and Kai-4 by the author.** Everything is built to the documented API and tested against a fake transport. Run a live task with real phones before relying on it, and expect rough edges in response-shape handling.
-- **The planner is an LLM.** Expression rules like "money > 200" are applied by Kai-4, so they can be missed. Keyword rules are enforced in code, and every plan is validated, but review the plan on the board. A re-plan can drop a pending decision. Drops are recorded in the receipt and shown on the board, and a re-plan that drops a decision others depend on is rejected unless it also rewrites those dependencies.
+- **The planner is an LLM.** Expression rules like "money > 200" are applied by Kai-4, so they can be missed. Keyword rules are enforced in code, and every plan is validated, but review the plan on the board. A re-plan can only tighten pending decisions and drop informational text ones (see above). Expression rules still depend on Kai-4 for *new* decisions it adds.
 - Text replies from people flow into the re-planner prompt (truncated to 300 chars). Treat them as untrusted input. A re-plan can't edit settled decisions or skip validation.
 - Polling (every 2 s) instead of callbacks. Quorum met means the other asks are canceled (see consent rule).
 - The escalation prompt follows PRD F6 ("Ask again?"). The PRD §3 demo wording ("Remind her or cancel?") would be a one-line change in `engine.py`.
@@ -186,8 +188,10 @@ Multi-human approval already exists: **HumanWire**, **Quorum**, and **Microsoft 
 
 - PRD §7 is the config format. Older flat keys and string rules still load.
 - `text` decisions are satisfied by a non-empty reply and recorded as information, not consent (see above).
-- Dropped decisions don't count against the final `approved`, but a re-plan that leaves a dangling dependency on a dropped decision is rejected.
+- Only `text` decisions can be dropped by a re-plan. Dropped ones don't count against the final `approved`, and a re-plan that leaves a dangling dependency on one is rejected.
+- An escalation ask to a backup is not a vote. It never appears in a decision's `votes` and never hides the backup's own pending ask.
 - `veto_on_deny: false` is supported. A deny then just doesn't count, and the decision fails only when quorum becomes unreachable.
+- If a decision is cancelled while its ask is still being delivered, Ask Around waits for delivery, records the eventId, then cancels it, so no live prompt is left on a phone.
 - Pending polls tolerate 3 consecutive read errors, and the 4th is treated as NO. A pending ask that never settles server-side is treated as expired 45 s after its deadline.
 
 ## Next steps

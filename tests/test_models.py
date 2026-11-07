@@ -29,8 +29,8 @@ def test_prd_policy_format_and_legacy_policy():
     legacy = Policy.model_validate({"max_reasks": 2, "default_expires_s": 60, "rules": ["be careful"]})
     assert legacy.rules[0].match == "be careful" and legacy.max_reasks == 2
     assert Policy.model_validate({"defaults": {"max_replans": 2}}).max_replans == 2
-    with pytest.raises(Exception):
-        Policy.model_validate({"defaults": {"max_replans": 9}})
+    assert Policy.model_validate({"defaults": {"max_replans": 9}}).max_replans == 2  # clamped, not rejected
+    assert Policy.model_validate({"max_replans": 0}).max_replans == 0
 
 
 def test_validate_plan_rejects_bad_plans():
@@ -63,10 +63,16 @@ def test_require_all_owners():
 
 
 async def test_text_reply_satisfies_text_decision_only():
-    eng, _ = build([dec("h", ["dad"], type="text")], scripted({("dad", 1): [(0, "replied")]}))
+    eng, _ = build([dec("h", ["dad"], type="text")], scripted({("dad", 1): [(0, "replied_empty")]}))
     # no text in the fake reply -> empty reply is NOT an answer
     r = await eng.run()
     assert r["outcome"] != "approved"
+
+
+async def test_text_reply_with_text_passes_text_decision():
+    eng, _ = build([dec("h", ["dad"], type="text")], scripted({}))
+    r = await eng.run()
+    assert r["outcome"] == "approved" and r["asks"][0]["text"] == "Under $150, walkable"
 
 
 async def test_text_reply_with_text_passes_but_replied_never_approves_yes_no(monkeypatch):

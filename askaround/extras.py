@@ -10,6 +10,7 @@ from pathlib import Path
 
 import yaml
 from rich.console import Console
+from rich.markup import escape
 
 from .models import load_roster
 from .planner import Kai, PlannerError
@@ -21,7 +22,7 @@ async def compile_policy_cmd(text: str, roster_path: str | None, out: str, conso
     try:
         policy = await kai.compile_policy(text, roster)
     except PlannerError as e:
-        console.print(f"[red]error:[/] {e}")
+        console.print(f"[red]error:[/] {escape(str(e))}")
         return 2
     finally:
         await kai.client.aclose()
@@ -33,9 +34,9 @@ async def compile_policy_cmd(text: str, roster_path: str | None, out: str, conso
     path = Path(out)
     if path.exists():
         shutil.copy(path, f"{out}.bak")
-        console.print(f"[dim]existing {out} saved as {out}.bak[/]")
+        console.print(f"[dim]existing {escape(out)} saved as {escape(out)}.bak[/]")
     path.write_text(body)
-    console.print(f"wrote [b]{out}[/] with {len(policy.rules)} rule(s)")
+    console.print(f"wrote [b]{escape(out)}[/] with {len(policy.rules)} rule(s)")
     return 0
 
 
