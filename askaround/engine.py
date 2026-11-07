@@ -99,7 +99,8 @@ class Engine:
             d.asks.append(rec)
             ask_task = asyncio.ensure_future(self.notify.ask(
                 p.webhook_url, title=f"Ask Around · {p.role}", body=prompt, type=type_, expires_s=expires_s,
-                correlation_id=corr, idempotency_key=f"{self.run_id}-{corr}-{self._n}"))
+                correlation_id=corr, idempotency_key=f"{self.run_id}-{corr}-{self._n}",
+                device_id=p.device_id))
             try:
                 rec.event_id, _ = await asyncio.shield(ask_task)
             except NotifyError as e:

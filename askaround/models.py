@@ -17,6 +17,7 @@ class Person(BaseModel):
     webhook_url: str = Field(repr=False, validation_alias=AliasChoices("webhook", "webhook_url"))
     backup: str | None = None
     user_id: str | None = None
+    device_id: str | None = None  # target ONE of the account's devices (Notify `deviceIds`)
 
 
 class Roster(BaseModel):

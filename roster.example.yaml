@@ -3,9 +3,12 @@
 requester: arav
 people:
   arav: { role: "requester", webhook: "https://notify.belweave.ai/hooks/whk_REPLACE_ARAV", backup: null }
-  dad:  { role: "parent · budget, hotel", webhook: "https://notify.belweave.ai/hooks/whk_REPLACE_DAD", backup: arav }
+  dad:  { role: "parent · budget, hotel", webhook: "https://notify.belweave.ai/hooks/whk_REPLACE_DAD", backup: arav, device_id: "dev_REPLACE" }
   mom:
     role: "parent · budget"
     webhook: "https://notify.belweave.ai/hooks/whk_REPLACE_MOM"
     backup: arav          # asked "Mom hasn't answered '...'. Ask again?" when Mom is silent
     # user_id: "REPLACE"  # optional: ignore answers whose respondingUserId differs (shared Family service)
+# Optional per person: target one device when several people share one Notify account (e.g. two demo phones):
+#   dad: { ..., device_id: "dev_REPLACE" }
+# Answers are credited to the person the ask was sent to (by event id), not by respondingUserId.

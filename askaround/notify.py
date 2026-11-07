@@ -62,13 +62,15 @@ class Notify:
         return r  # pragma: no cover
 
     async def ask(self, webhook: str, *, title: str, body: str, type: str, expires_s: int,
-                  correlation_id: str, idempotency_key: str) -> tuple[str, str | None]:
+                  correlation_id: str, idempotency_key: str, device_id: str | None = None) -> tuple[str, str | None]:
         payload = {
             "title": title[:80],
             "body": body[:2000],
             "response": {"type": type, "expiresInSeconds": max(30, min(86400, int(expires_s))),
                          "correlationId": correlation_id[:100]},
         }
+        if device_id:  # per-person device targeting; omitted entirely when not set
+            payload["deviceIds"] = [device_id]
         try:
             r = await self._request("POST", webhook, json=payload, headers={"Idempotency-Key": idempotency_key[:200]})
             data = r.json()

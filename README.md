@@ -82,7 +82,8 @@ people:
   arav: { role: "requester", webhook: "https://notify.belweave.ai/hooks/whk_…", backup: null }
   dad:  { role: "parent · budget, hotel", webhook: "https://notify.belweave.ai/hooks/whk_…", backup: arav }
   mom:  { role: "parent · budget", webhook: "https://notify.belweave.ai/hooks/whk_…", backup: arav }
-  # optional per person: name (defaults to the key, title-cased), user_id (wrong-person guard)
+  # optional per person: name (defaults to the key, title-cased), user_id (wrong-person guard),
+  # device_id (adds "deviceIds": [id] to that person's asks, for people sharing one Notify account)
 ```
 
 `webhook_url:` is accepted as an alias for `webhook:`. The requester's webhook also hosts the Live Activity.
