@@ -62,6 +62,8 @@ class Policy(BaseModel):
     """Accepts the PRD shape (`rules:` of objects + `defaults:`) and the older flat keys / string rules."""
     max_reasks: int = Field(default=1, ge=0, le=5)
     default_expires_s: int = Field(default=300, ge=30, le=86400)
+    max_expires_s: int | None = Field(default=None, ge=30, le=86400)   # clamp every decision to at most this
+    force_expires_s: int | None = Field(default=None, ge=30, le=86400, exclude=True)  # CLI --expires: runtime override
     veto_on_deny: bool = True
     require_all_owners: bool = False
     max_replans: int = Field(default=2, ge=0)  # clamped to 2 (PRD F8) by the validator below
@@ -110,7 +112,8 @@ class Policy(BaseModel):
     def as_yaml_dict(self) -> dict:
         return {"rules": self.rules_for_planner(),
                 "defaults": {"expires_s": self.default_expires_s, "veto_on_deny": self.veto_on_deny,
-                             "max_reasks": self.max_reasks, "max_replans": self.max_replans}}
+                             "max_reasks": self.max_reasks, "max_replans": self.max_replans,
+                             **({"max_expires_s": self.max_expires_s} if self.max_expires_s else {})}}
 
 
 def enforce_rules(plan_decisions: list["PlanDecision"], roster: "Roster", policy: Policy) -> None:
@@ -190,6 +193,10 @@ def validate_plan(plan: Plan, roster: Roster, policy: Policy, existing_ids: set[
         if not 1 <= d.quorum <= len(d.owners):
             raise ValueError(f"decision {d.id}: quorum {d.quorum} must be between 1 and {len(d.owners)}")
         d.expires_s = d.expires_s or policy.default_expires_s
+        if policy.max_expires_s:  # the planner may copy any number; policy has the last word
+            d.expires_s = min(d.expires_s, policy.max_expires_s)
+        if policy.force_expires_s:
+            d.expires_s = policy.force_expires_s
     known = seen | existing_ids
     for d in plan.decisions:
         for dep in d.depends_on:

@@ -19,12 +19,15 @@ from .planner import Kai, PlannerError, canned_plan
 async def run_task(task: str, roster_path: str, policy_path: str | None, *, dry_run: bool = False,
                    silent: set[str] | None = None, deny: set[str] | None = None, receipt_path: str | None = "receipt.json",
                    show_board: bool = True, console: Console | None = None, poll_interval: float = 2.0,
-                   speed: float = 1.0) -> dict:
+                   speed: float = 1.0, expires: int | None = None) -> dict:
     console = console or Console()
     roster = load_roster(roster_path)
     if policy_path is None and Path("policy.yaml").is_file():
         policy_path = "policy.yaml"
+    if expires is not None and not 30 <= expires <= 86400:
+        raise ValueError("--expires must be between 30 and 86400 seconds (Notify's limits)")
     policy = load_policy(policy_path).bind(roster)  # explicit-but-missing path raises; typo'd owners raise
+    policy.force_expires_s = expires
     if policy_path is None:
         console.print("[yellow]warning:[/] no policy file: running with built-in defaults and NO policy rules")
     kai = Kai()

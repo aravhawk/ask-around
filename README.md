@@ -97,9 +97,10 @@ rules:
   - match: "hotel"            # plain keywords are ALSO enforced deterministically after planning
     owners: [dad]
     quorum: 1
-defaults: { expires_s: 30, veto_on_deny: true, max_reasks: 1, max_replans: 2 }
+defaults: { expires_s: 30, max_expires_s: 30, veto_on_deny: true, max_reasks: 1, max_replans: 2 }
 ```
 
+- `max_expires_s` clamps every decision's `expires_s` after planning *and* re-planning, because the planner may copy any number. Without it, silence takes as long as the planner said. `--expires N` on the CLI overrides every decision's `expires_s` (30–86400).
 - Expression rules (`money > 200`) are applied by the planner. Plain-keyword rules (`hotel`) are also enforced in code: any decision mentioning the keyword gets the rule's owners and at least its quorum. This also applies to decisions added by a re-plan. Rules can only tighten, never loosen.
 - `require_all_owners: true` (extra) forces quorum = every owner of every decision.
 - The older flat keys (`max_reasks`, `default_expires_s`) and plain-string rules still load.

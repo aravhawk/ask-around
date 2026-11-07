@@ -7,4 +7,4 @@ rules:
   - match: "hotel"
     owners: [dad]
     quorum: 1
-defaults: { expires_s: 30, veto_on_deny: true, max_reasks: 1, max_replans: 2 }
+defaults: { expires_s: 30, max_expires_s: 30, veto_on_deny: true, max_reasks: 1, max_replans: 2 }

@@ -20,6 +20,7 @@ def _run_parser() -> argparse.ArgumentParser:
     ap.add_argument("--dry-run", action="store_true", help="fake Notify answers; no phones needed")
     ap.add_argument("--dry-run-silent", action="append", metavar="PERSON", help="person who ignores their first ask")
     ap.add_argument("--dry-run-deny", action="append", metavar="PERSON", help="person who denies")
+    ap.add_argument("--expires", type=int, metavar="N", help="override every decision's expires_s (30-86400 seconds)")
     ap.add_argument("--speed", type=float, default=1.0, help="dry-run time multiplier (0.5 = twice as fast)")
     return ap
 
@@ -34,7 +35,7 @@ def main(argv: list[str] | None = None) -> int:
     a = _run_parser().parse_args(argv)
     try:
         receipt = asyncio.run(run_task(
-            a.task, a.roster, a.policy, dry_run=a.dry_run, receipt_path=a.receipt, speed=a.speed,
+            a.task, a.roster, a.policy, dry_run=a.dry_run, receipt_path=a.receipt, speed=a.speed, expires=a.expires,
             silent=set(a.dry_run_silent) if a.dry_run_silent else None,
             deny=set(a.dry_run_deny or []), console=console))
     except KeyboardInterrupt:
